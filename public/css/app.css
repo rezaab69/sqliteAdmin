@@ -218,7 +218,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
 .icon-btn.sm { width: 24px; height: 24px; }
 .icon-btn.danger:hover { color: var(--danger); background: var(--danger-soft); }
 
-input[type="text"], input[type="password"], input[type="number"], input[type="search"], input:not([type]), select, textarea {
+input[type="text"], input[type="email"], input[type="password"], input[type="number"], input[type="search"], input:not([type]), select, textarea {
   font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm); padding: 5px 9px; min-height: 32px; min-width: 0;
 }
