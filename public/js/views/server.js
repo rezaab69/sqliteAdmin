@@ -128,7 +128,7 @@ export async function renderDatabases(container) {
   }
 
   container.replaceChildren(h('h1', null, 'Databases'), pub ? storageNotice(dbs, usage) : null, list,
-    panels.length ? h('div', { class: 'grid-2' }, panels) : null);
+    panels.length ? h('div', { class: 'grid-2 equal' }, panels) : null);
 }
 
 function uploadPanel() {

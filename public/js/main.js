@@ -245,8 +245,11 @@ function renderSidebar(route) {
   const dbSelect = h('select', {
     'aria-label': 'Database',
     onchange: (e) => go(e.target.value ? { db: e.target.value } : {}),
-  }, h('option', { value: '' }, '— Select a database —'),
-  state.databases.map((d) => h('option', { value: d.name, selected: d.name === route.db }, d.name)));
+    id: 'sb-db-select',
+    title: route.db || 'Select a database',
+  }, h('option', { value: '' }, state.databases.length ? 'All databases…' : 'No databases yet'),
+  state.databases.map((d) => h('option', { value: d.name, selected: d.name === route.db },
+    d.tables !== undefined ? `${d.name}  (${d.tables} ${d.tables === 1 ? 'table' : 'tables'})` : d.name)));
   const filter = h('input', {
     type: 'search', placeholder: route.db ? 'Filter tables…' : 'Filter databases…', value: sidebarFilter,
     'aria-label': 'Filter',
@@ -284,6 +287,7 @@ function renderSidebar(route) {
 
   shell.sidebar.replaceChildren(
     h('div', { class: 'sb-section' },
+      h('label', { class: 'sb-label', for: 'sb-db-select' }, 'Database'),
       h('div', { class: 'sb-db' }, dbSelect,
         h('a', { class: 'icon-btn', href: '#/', title: 'All databases' }, icon('server', 16))),
       h('div', { class: 'sb-filter' }, icon('search', 14), filter)),

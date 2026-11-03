@@ -149,7 +149,8 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
 /* ---------- sidebar ---------- */
 .sb-section { padding: 10px 10px 4px; }
 .sb-db { display: flex; gap: 6px; align-items: center; }
-.sb-db select { flex: 1; min-width: 0; }
+.sb-db select { flex: 1; min-width: 0; font-weight: 600; text-overflow: ellipsis; cursor: pointer; }
+.sb-label { display: block; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); margin: 0 0 5px 2px; }
 .sb-filter { position: relative; margin-top: 8px; }
 .sb-filter input[type="search"] { width: 100%; padding-left: 28px; }
 .sb-filter svg { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: var(--text-3); }
@@ -257,8 +258,12 @@ label.check { display: inline-flex; align-items: center; gap: 7px; cursor: point
 .card-body.flush { padding: 0; }
 .card.danger-zone { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
 .card.danger-zone .card-header { color: var(--danger); }
-.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; align-items: start; }
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: 16px; align-items: start; }
 .grid-2 > .card { margin-bottom: 0; }
+.grid-2.equal { align-items: stretch; }
+.grid-2.equal > .card { display: flex; flex-direction: column; }
+.grid-2.equal > .card > .card-body { flex: 1; display: flex; flex-direction: column; }
+.grid-2.equal .drop-zone { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .stack > * + * { margin-top: 16px; }
 
 .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
@@ -519,4 +524,31 @@ table.datagrid { border-collapse: separate; border-spacing: 0; font-size: 13px; 
   .sql-side { display: none; }
   .crumbs .hide-sm, .topbar .hide-sm { display: none; }
   .grid-toolbar .search input[type="search"] { width: 160px; }
+  .ro-banner, .tx-banner { padding-left: 12px; padding-right: 12px; }
+}
+
+@media (max-width: 600px) {
+  /* 16px inputs stop iOS Safari from zooming the page when a field is focused */
+  input[type="text"], input[type="email"], input[type="password"], input[type="number"], input[type="search"],
+  input:not([type]), select, textarea { font-size: 16px; min-height: 40px; }
+  .input-sm { min-height: 34px !important; font-size: 16px !important; }
+  .btn { min-height: 38px; }
+  .icon-btn { width: 36px; height: 36px; }
+  .icon-btn.sm { width: 32px; height: 32px; }
+  .topbar { gap: 8px; padding: 0 8px; padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); }
+  .topbar .user-label { max-width: 110px; }
+  .brand span, .brand .brand-text { display: none; }
+  .tree-item a { padding-top: 8px; padding-bottom: 8px; }
+  .grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .card-header { padding: 10px 12px; }
+  .card-body { padding: 12px; }
+  .row > input[type="text"] { flex: 1 1 100%; width: 100% !important; }
+  .table-wrap { -webkit-overflow-scrolling: touch; }
+  .content { padding-bottom: max(40px, env(safe-area-inset-bottom)); }
+}
+
+/* dvh accounts for mobile browser toolbars; vh is the fallback above */
+@supports (height: 100dvh) {
+  .app { height: 100dvh; }
+  .login-page { min-height: 100dvh; }
 }
