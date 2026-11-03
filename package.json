@@ -1,0 +1,18 @@
+{
+  "name": "sqlite-admin",
+  "version": "1.0.0",
+  "description": "A web-based administration panel for SQLite databases, similar to phpMyAdmin. Zero dependencies.",
+  "type": "module",
+  "main": "server.js",
+  "bin": {
+    "sqlite-admin": "server.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "license": "MIT"
+}
