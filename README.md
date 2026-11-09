@@ -88,6 +88,7 @@ Public website mode (see below):
       --max-upload <MB>    Largest file that can be uploaded or imported (default 100)
       --guest-hours <h>    Delete a visitor's temporary databases after this long without activity (default 24)
       --max-workers <n>    Workspaces that can have databases open at once (default 16)
+      --worker-memory <MB> Memory each of those may use, SQLite included; an operation that needs more is stopped (default 512)
 ```
 
 Examples:
@@ -209,9 +210,13 @@ docker run -d --name sqlite-admin -p 127.0.0.1:8765:8765 -v sqlite-admin-data:/d
 The image runs in public mode as a non-root user, keeps its data in the `/data` volume and has a health check
 (`GET /healthz`).
 
-Sizing: each workspace with databases open uses one Node.js process (about 55 MB, and up to 512 MB of
-JavaScript heap while working), so the default `--max-workers 16` needs roughly 1–2 GB of RAM. When every
-worker is busy, new visitors get a "server busy" reply until one frees up.
+Sizing: each workspace with databases open uses one Node.js process: about 55 MB idle, and up to
+`--worker-memory` (512 MB by default, SQLite's memory included). An operation that goes over is stopped within
+milliseconds, its transaction rolled back, and the visitor gets an error; other workspaces are not affected. All workers together
+use at most `--max-workers` × `--worker-memory` (8 GB by default) and usually far less, since most are idle;
+lower either one on a small server. When every worker is busy, new visitors get a "server busy" reply until one
+frees up. On Linux, if the machine still runs out of memory, the kernel stops a workspace process before the
+server itself.
 
 ## Security
 

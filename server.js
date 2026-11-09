@@ -52,6 +52,8 @@ Public website mode (env SQLITE_ADMIN_PUBLIC=1):
       --guest-hours <h>   Delete a visitor's temporary databases after this long without
                           activity (default 24)
       --max-workers <n>   Workspaces that can have databases open at once (default 16)
+      --worker-memory <MB>  Memory each of those may use, SQLite included; an operation that needs more is
+                          stopped (default 512)
 `;
 
 let args;
@@ -80,6 +82,7 @@ try {
       'max-upload': { type: 'string' },
       'guest-hours': { type: 'string' },
       'max-workers': { type: 'string' },
+      'worker-memory': { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   }));
@@ -171,6 +174,7 @@ const options = {
   maxUpload: num('max-upload', MB),
   guestTtl: num('guest-hours', 3600_000),
   maxWorkers: num('max-workers'),
+  workerMemoryMb: num('worker-memory'),
   publicUrl: publicUrl || undefined,
   google: googleClientId ? { clientId: googleClientId, clientSecret: googleClientSecret } : undefined,
 };
@@ -183,6 +187,8 @@ if (isPublic && smtpUrl) {
   if (smtpUrl !== 'log' && !mailFrom) die('--mail-from (or SQLITE_ADMIN_MAIL_FROM) is required with --smtp.');
 }
 if (options.maxWorkers !== undefined && options.maxWorkers < 1) die('--max-workers must be at least 1');
+// A worker process uses about 55 MB doing nothing.
+if (options.workerMemoryMb !== undefined && options.workerMemoryMb < 128) die('--worker-memory must be at least 128');
 for (const [k, v] of Object.entries(options)) if (v === undefined) delete options[k];
 
 let app;
@@ -199,7 +205,8 @@ app.server.listen(port, host, () => {
   if (isPublic) {
     const o = app.options;
     console.log(`Public mode: guests get ${Math.round(o.guestQuota / MB)} MB (kept ${Math.round(o.guestTtl / 3600_000)} h), ` +
-      `accounts ${Math.round(o.userQuota / MB)} MB; sign-up ${o.allowSignup ? 'open' : 'closed'}; query timeout ${Math.round(o.queryTimeout / 1000)} s.`);
+      `accounts ${Math.round(o.userQuota / MB)} MB; sign-up ${o.allowSignup ? 'open' : 'closed'}; query timeout ${Math.round(o.queryTimeout / 1000)} s; ` +
+      `${o.maxWorkers} workspaces open at once, ${o.workerMemoryMb} MB of memory each.`);
     const methods = [smtpUrl && `email${smtpUrl === 'log' ? ' (emails printed here)' : ''}`, googleClientId && 'Google'].filter(Boolean);
     console.log(methods.length ? `Accounts: ${methods.join(' and ')}. Site address: ${publicUrl}`
       : 'Accounts are off (guests only): add --smtp for email sign-up and/or GOOGLE_CLIENT_ID for Google sign-in.');

@@ -138,7 +138,7 @@ before(async () => {
   google.base = `http://127.0.0.1:${google.server.address().port}`;
   ({ app, base } = await start({
     public: true, dataDir: dir, queryTimeout: 1500, guestQuota: 2 * MB, userQuota: 4 * MB, maxUpload: 3 * MB,
-    minFree: 0, sqliteHeapLimit: 0,
+    minFree: 0,
     publicUrl: 'http://set-after-listen',
     mailer: { async send(m) { mails.push(m); } },
     google: {
@@ -211,6 +211,23 @@ test('a runaway query is stopped without affecting the workspace', async () => {
   // The stopped query must really be gone, not still holding the file open (deleting fails on Windows then).
   await a.call('deleteDatabase', { db: 'sample.db' });
   assert.deepEqual(names(await a.call('databases')), []);
+});
+
+test('an operation that needs too much memory is stopped without affecting the workspace', async () => {
+  const memDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sqla-memory-test-'));
+  const mem = await start({ public: true, dataDir: memDir, minFree: 0, workerMemoryMb: 192, queryTimeout: 20_000 });
+  try {
+    const a = client(mem.base);
+    await a.call('databases');
+    // About 600 MB inside SQLite, outside the JavaScript heap.
+    const sql = "WITH RECURSIVE c(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM c WHERE i < 60) SELECT length(group_concat(hex(zeroblob(5000000)))) FROM c";
+    await assert.rejects(a.call('query', { db: 'sample.db', sql }), (e) => e.status === 413 && /192 MB of memory/.test(e.message));
+    const r = await a.call('query', { db: 'sample.db', sql: 'SELECT count(*) FROM artists' });
+    assert.ok(r.results[0].rows[0][0] > 0);
+  } finally {
+    await mem.app.close();
+    fs.rmSync(memDir, { recursive: true, force: true });
+  }
 });
 
 test('storage quota stops a database from growing', async () => {
