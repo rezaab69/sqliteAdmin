@@ -212,11 +212,20 @@ The image runs in public mode as a non-root user, keeps its data in the `/data` 
 
 Sizing: each workspace with databases open uses one Node.js process: about 55 MB idle, and up to
 `--worker-memory` (512 MB by default, SQLite's memory included). An operation that goes over is stopped within
-milliseconds, its transaction rolled back, and the visitor gets an error; other workspaces are not affected. All workers together
-use at most `--max-workers` × `--worker-memory` (8 GB by default) and usually far less, since most are idle;
-lower either one on a small server. When every worker is busy, new visitors get a "server busy" reply until one
-frees up. On Linux, if the machine still runs out of memory, the kernel stops a workspace process before the
-server itself.
+milliseconds, its transaction rolled back, and the visitor gets an error; calls waiting behind it and other
+workspaces are not affected. When every worker is busy, new visitors get a "server busy" reply until one frees up.
+
+`--max-workers` × `--worker-memory` (8 GB with the defaults) is the ceiling for the workers only, not for the
+whole server. Plan the machine's memory as the sum of:
+
+- the server process: about 60 MB, plus the data passing through it: each request being received (up to 32 MB,
+  or up to `--max-upload` for an import) and each query result on its way to a browser;
+- the workers: at most `--max-workers` × `--worker-memory`, usually far less since idle workers use about 55 MB;
+- the operating system, other services, and room for the file cache, which keeps SQLite fast.
+
+On a small server, lower `--max-workers` or `--worker-memory` until the sum fits. As a last resort on Linux, if
+the machine runs out of memory anyway, the kernel is asked to stop a workspace process before the server; treat
+that as a safety net, not a guarantee.
 
 ## Security
 
@@ -275,6 +284,7 @@ server.js                 command line: options, startup, shutdown
 lib/server.js             HTTP server, sessions and accounts, static files, API dispatch
 lib/pool.js               one child process per workspace; queueing, timeouts, limits
 lib/worker.js             the child process: runs API calls against its workspace's databases
+lib/watchdog.js           the child process's memory limit (a thread that stops it when over)
 lib/accounts.js           users, sessions and emailed-link tokens (public mode)
 lib/mailer.js             minimal SMTP client for account emails
 lib/dbmanager.js          database files and connections, storage locations, quotas, SQL restrictions

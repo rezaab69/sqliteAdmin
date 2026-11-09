@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createApp } from '../lib/server.js';
 import { createSampleDatabase } from '../lib/sample.js';
+import { WorkerPool } from '../lib/pool.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MB = 1048576;
@@ -213,20 +214,60 @@ test('a runaway query is stopped without affecting the workspace', async () => {
   assert.deepEqual(names(await a.call('databases')), []);
 });
 
-test('an operation that needs too much memory is stopped without affecting the workspace', async () => {
+test('an operation that needs too much memory is stopped; only it fails, and everything recovers', async () => {
   const memDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sqla-memory-test-'));
   const mem = await start({ public: true, dataDir: memDir, minFree: 0, workerMemoryMb: 192, queryTimeout: 20_000 });
   try {
     const a = client(mem.base);
+    const b = client(mem.base);
     await a.call('databases');
+    await b.call('databases');
+    const workerDirs = () => fs.readdirSync(path.join(memDir, 'tmp'), { recursive: true }).filter((p) => /worker-\d+$/.test(p)).sort();
+    const before = workerDirs();
+    assert.equal(before.length, 2);
+    let r = await a.call('query', { db: 'sample.db', sql: 'BEGIN; CREATE TABLE pending(x); INSERT INTO pending VALUES (1)' });
+    assert.equal(r.inTransaction, true);
+
     // About 600 MB inside SQLite, outside the JavaScript heap.
-    const sql = "WITH RECURSIVE c(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM c WHERE i < 60) SELECT length(group_concat(hex(zeroblob(5000000)))) FROM c";
-    await assert.rejects(a.call('query', { db: 'sample.db', sql }), (e) => e.status === 413 && /192 MB of memory/.test(e.message));
-    const r = await a.call('query', { db: 'sample.db', sql: 'SELECT count(*) FROM artists' });
-    assert.ok(r.results[0].rows[0][0] > 0);
+    const heavySql = 'WITH RECURSIVE c(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM c WHERE i < 60) SELECT length(group_concat(hex(zeroblob(5000000)))) FROM c';
+    const count = { db: 'sample.db', sql: 'SELECT count(*) FROM artists' };
+    const heavy = a.call('query', { db: 'sample.db', sql: heavySql });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const queued = a.call('query', count); // same workspace, waiting behind the heavy call
+    const other = b.call('query', count); // another workspace, at the same time
+    await assert.rejects(heavy, (e) => e.status === 413 && /192 MB of memory/.test(e.message));
+    assert.ok((await queued).results[0].rows[0][0] > 0);
+    assert.ok((await other).results[0].rows[0][0] > 0);
+
+    // The open transaction was rolled back and the database is intact.
+    r = await a.call('query', { db: 'sample.db', sql: "SELECT count(*) FROM sqlite_schema WHERE name = 'pending'; PRAGMA integrity_check" });
+    assert.equal(r.inTransaction, false);
+    assert.equal(r.results[0].rows[0][0], 0);
+    assert.equal(r.results[1].rows[0][0], 'ok');
+    // The stopped worker's temporary directory is gone; its replacement has a new one.
+    const after = workerDirs();
+    assert.equal(after.length, 2);
+    assert.equal(after.filter((d) => before.includes(d)).length, 1);
   } finally {
     await mem.app.close();
     fs.rmSync(memDir, { recursive: true, force: true });
+  }
+});
+
+test('a call that had not started is not blamed for memory, and is not retried forever', async () => {
+  const poolDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sqla-pool-test-'));
+  // Less than an idle worker uses: every worker goes over before the call can start.
+  const exited = [];
+  const pool = new WorkerPool({ max: 2, memoryMb: 30, onExit: (_config, pid) => exited.push(pid) });
+  try {
+    const config = { manager: { locations: [{ id: 'temp', dir: poolDir }], secure: true, tmpDir: path.join(poolDir, 'tmp') }, maxResponseBytes: 0 };
+    await assert.rejects(pool.call('ws', config, { kind: 'json', name: 'databases' }), (e) => e.status === 413);
+    // Run on four workers (the first and three retries), each one cleaned up after.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(new Set(exited).size, 4);
+  } finally {
+    await pool.close();
+    fs.rmSync(poolDir, { recursive: true, force: true });
   }
 });
 
@@ -273,7 +314,9 @@ test('upload and download round trip', async () => {
   assert.equal(Number(res.headers.get('content-length')), bytes.length);
   await assert.rejects(a.upload({ name: 'bad.db' }, Buffer.from('not a database at all')), /not an SQLite 3 database/);
   await assert.rejects(a.upload({ name: 'huge.db' }, Buffer.alloc(4 * MB)), (e) => e.status === 413);
-  assert.deepEqual(fs.readdirSync(path.join(dir, 'tmp')).flatMap((ws) => fs.readdirSync(path.join(dir, 'tmp', ws))), []);
+  // No temporary files left anywhere (live workers keep an empty directory of their own there).
+  const leftovers = fs.readdirSync(path.join(dir, 'tmp'), { recursive: true, withFileTypes: true }).filter((d) => !d.isDirectory());
+  assert.deepEqual(leftovers.map((d) => d.name), []);
 });
 
 // ---------------------------------------------------------------------------------------------
