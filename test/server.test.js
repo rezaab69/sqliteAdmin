@@ -188,6 +188,11 @@ test('user SQL cannot reach the file system or lift limits', async () => {
   assert.match(await run('PRAGMA hard_heap_limit = 1'), /not authorized|disabled/);
   assert.match(await run("SELECT load_extension('evil')"), /not authorized|no such function/);
   assert.equal(await run('PRAGMA max_page_count'), null);
+  // Settings that would lift a limit can be read but not changed.
+  for (const pragma of ['page_size = 65536', 'wal_autocheckpoint = 0', 'temp_store = FILE', 'trusted_schema = ON']) {
+    assert.match(await run(`PRAGMA ${pragma}`), /not authorized|disabled/, pragma);
+  }
+  assert.equal(await run('PRAGMA page_size'), null);
   const overview = await a.call('overview', { db: 'sample.db' });
   assert.equal(overview.info.file, 'sample.db');
 });
@@ -219,6 +224,23 @@ test('storage quota stops a database from growing', async () => {
   assert.match(r.results.at(-1).error, /quota/i);
   const usage = await a.call('usage');
   assert.ok(usage.locations[0].used <= 2 * MB);
+});
+
+test('temporary tables and empty databases stay within the quota', async () => {
+  const a = client();
+  await a.upload({ name: 'empty.db' }, new Uint8Array(0));
+  const fill = (table) => `WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c LIMIT 400) INSERT INTO ${table} SELECT randomblob(10000) FROM c`;
+  // TEMP tables live outside the workspace directory, but count against the same limit.
+  let r = await a.call('query', { db: 'empty.db', sql: `CREATE TEMP TABLE scratch(b); ${fill('scratch')}` });
+  assert.equal(r.failed, true);
+  assert.match(r.results.at(-1).error, /quota|full/i);
+  // Changing temp_store would reopen the TEMP database without its limit.
+  r = await a.call('query', { db: 'empty.db', sql: `PRAGMA temp_store = MEMORY; CREATE TEMP TABLE scratch2(b); ${fill('scratch2')}` });
+  assert.equal(r.failed, true);
+  // A larger page size would multiply a quota that is counted in pages.
+  r = await a.call('query', { db: 'empty.db', sql: `PRAGMA page_size = 65536; CREATE TABLE t(b); ${fill('t')}` });
+  assert.equal(r.failed, true);
+  assert.ok((await a.call('usage')).locations[0].used <= 2 * MB);
 });
 
 test('upload and download round trip', async () => {
@@ -411,6 +433,24 @@ test('API requests need the custom header', async () => {
   const res = await fetch(`${base}/api/databases`, { method: 'POST' });
   assert.equal(res.status, 403);
   assert.equal((await fetch(`${base}/healthz`)).status, 200);
+});
+
+test('behind a proxy, rate limits use the address the proxy saw, not one the client made up', async () => {
+  const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sqla-proxy-test-'));
+  const local = await start({ dataDir: localDir, password: 'secret', trustProxy: true });
+  try {
+    // The client sends its own X-Forwarded-For; the proxy appends the real address.
+    const login = (i) => fetch(`${local.base}/api/login`, {
+      method: 'POST',
+      headers: { 'X-SQLite-Admin': '1', 'Content-Type': 'application/json', 'X-Forwarded-For': `10.0.0.${i}, 203.0.113.7` },
+      body: JSON.stringify({ password: 'wrong' }),
+    });
+    for (let i = 0; i < 5; i++) assert.equal((await login(i)).status, 401);
+    assert.equal((await login(99)).status, 429);
+  } finally {
+    await local.app.close();
+    fs.rmSync(localDir, { recursive: true, force: true });
+  }
 });
 
 test('local mode still serves the data directory behind the shared password', async () => {

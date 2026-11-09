@@ -192,7 +192,8 @@ db.example.com {
 }
 ```
 
-**nginx**: proxy to `http://127.0.0.1:8765`, set `X-Forwarded-For` and `X-Forwarded-Proto`, allow uploads with
+**nginx**: proxy to `http://127.0.0.1:8765`, set `X-Forwarded-For $proxy_add_x_forwarded_for` (or `$remote_addr`;
+SQLite Admin uses the last address in the header, the one your proxy adds) and `X-Forwarded-Proto $scheme`, allow uploads with
 `client_max_body_size 100m;`, and give long exports time with `proxy_read_timeout 180s;`.
 
 **Docker**:
