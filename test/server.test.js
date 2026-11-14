@@ -340,7 +340,8 @@ test('signing up by email needs the confirmation link, and keeps guest databases
   assert.equal(v.user.email, 'Alice@Example.com');
   assert.notEqual(a.session, guestSession);
   assert.equal((await a.call('status')).user.email, 'Alice@Example.com');
-  assert.deepEqual(placed(await a.call('databases')), [['draft.db', 'temp'], ['sample.db', 'temp']]);
+  // The untouched demo database isn't carried into the account.
+  assert.deepEqual(placed(await a.call('databases')), [['draft.db', 'temp']]);
   // The link works once.
   await assert.rejects(client().call('verifyEmail', { token: linkToken(mail, 'verify') }), (e) => e.status === 400);
 
@@ -351,21 +352,27 @@ test('signing up by email needs the confirmation link, and keeps guest databases
 
   await assert.rejects(a.call('login', { email: 'alice@example.com', password: 'wrong password' }), (e) => e.status === 401);
   await a.call('login', { email: 'ALICE@example.com', password: 'correct horse' });
-  assert.deepEqual(placed(await a.call('databases')), [['direct.db', 'saved'], ['draft.db', 'saved'], ['sample.db', 'temp']]);
+  assert.deepEqual(placed(await a.call('databases')), [['direct.db', 'saved'], ['draft.db', 'saved']]);
 
   // Another visitor can't see alice's databases.
   assert.deepEqual(names(await client().call('databases')), ['sample.db']);
 });
 
-test('signing up with a registered address emails the owner and changes nothing', async () => {
+test('a sample database the guest has edited is kept on login', async () => {
+  const a = client();
+  await a.call('query', { db: 'sample.db', sql: "INSERT INTO settings (key, value) VALUES ('edited', 'yes')" });
+  await signUp(a, 'hank@example.com', 'hank password');
+  assert.deepEqual(names(await a.call('databases')), ['sample.db']);
+});
+
+test('signing up with a registered address is rejected and changes nothing', async () => {
   const a = client();
   await signUp(a, 'erin@example.com', 'erin password');
   const before = mails.length;
   const b = client();
-  const r = await b.call('signup', { email: 'erin@example.com', password: 'attacker password' });
-  assert.equal(r.email, 'erin@example.com');
-  assert.equal(mails.length, before + 1);
-  assert.match(mailTo('erin@example.com').text, /already have an account/);
+  await assert.rejects(b.call('signup', { email: 'erin@example.com', password: 'attacker password' }),
+    (e) => e.status === 409 && /already registered/.test(e.message));
+  assert.equal(mails.length, before);
   await assert.rejects(b.call('login', { email: 'erin@example.com', password: 'attacker password' }), (e) => e.status === 401);
   await b.call('login', { email: 'erin@example.com', password: 'erin password' });
 });
@@ -412,7 +419,7 @@ test('temporary databases that clash with saved names are renamed on login', asy
   await a.call('logout');
   await a.call('createDatabase', { name: 'notes' });
   await a.call('login', { email: 'bob@example.com', password: 'bob password' });
-  assert.deepEqual(placed(await a.call('databases')), [['notes (2).db', 'temp'], ['notes.db', 'saved'], ['sample.db', 'temp']]);
+  assert.deepEqual(placed(await a.call('databases')), [['notes (2).db', 'temp'], ['notes.db', 'saved']]);
 });
 
 test('changing the password signs out other sessions; deleting the account removes its data', async () => {
@@ -441,7 +448,7 @@ test('Continue with Google creates an account and keeps guest databases', async 
   assert.equal(where, '/#/?signedIn=google');
   const status = await a.call('status');
   assert.deepEqual(status.user, { email: 'gina@gmail.com', name: 'Gina' });
-  assert.deepEqual(names(await a.call('databases')), ['before-google.db', 'sample.db']);
+  assert.deepEqual(names(await a.call('databases')), ['before-google.db']);
   const { user } = await a.call('account');
   assert.equal(user.google, true);
   assert.equal(user.hasPassword, false);
